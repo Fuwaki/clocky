@@ -38,7 +38,8 @@ struct SimpleVelloApp<'s> {
     // description a scene to be drawn (with paths, fills, images, text, etc)
     // which is then passed to a renderer for rendering
     scene: Scene,
-    render_callback:Box<dyn Fn(&mut Scene)>,
+    render_callback: Box<dyn Fn(&mut Scene)>,
+    resize_callback: Box<dyn Fn((u32, u32))>,
 }
 
 impl ApplicationHandler for SimpleVelloApp<'_> {
@@ -88,8 +89,8 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
         event: WindowEvent,
     ) {
         // Only process events for our window, and only when we have a surface.
-        let surface = match &mut self.state {
-            RenderState::Active { surface, window } if window.id() == window_id => surface,
+        let (surface,window) = match &mut self.state {
+            RenderState::Active { surface, window } if window.id() == window_id => (surface,window),
             _ => return,
         };
 
@@ -101,6 +102,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
+                (self.resize_callback)((size.width, size.height));
             }
 
             // This is where all the rendering happens
@@ -164,13 +166,14 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                 surface_texture.present();
 
                 device_handle.device.poll(wgpu::Maintain::Poll);
+                window.request_redraw();
             }
             _ => {}
         }
     }
 }
 
-pub fn run(render_callback:Box<dyn Fn(&mut Scene)>) -> Result<()> {
+pub fn run(resize_callback:Box<dyn Fn((u32,u32))>,render_callback: Box<dyn Fn(&mut Scene)>) -> Result<()> {
     // Setup a bunch of state:
     let mut app = SimpleVelloApp {
         context: RenderContext::new(),
@@ -178,6 +181,7 @@ pub fn run(render_callback:Box<dyn Fn(&mut Scene)>) -> Result<()> {
         state: RenderState::Suspended(None),
         scene: Scene::new(),
         render_callback,
+        resize_callback,
     };
 
     // Create and run a winit event loop
@@ -193,7 +197,7 @@ fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
     let attr = Window::default_attributes()
         .with_inner_size(LogicalSize::new(1044, 800))
         .with_resizable(true)
-        .with_title("Vello Shapes");
+        .with_title("Qwq");
     Arc::new(event_loop.create_window(attr).unwrap())
 }
 
@@ -205,5 +209,3 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>)
     )
     .expect("Couldn't create renderer")
 }
-
-
