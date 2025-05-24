@@ -1,0 +1,4 @@
+ignoredBuiltDependencies:
+  - esbuild
+overrides:
+  clocky: link:../../../../../../../home/fuwaki/.local/share/pnpm/global/5/node_modules/clocky

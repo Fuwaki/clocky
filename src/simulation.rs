@@ -1,10 +1,10 @@
-use nalgebra::{point, vector, Rotation, Vector2};
+use chrono::offset;
+use nalgebra::{point, vector, Isometry, Rotation, Vector2};
+use pid::Pid;
 use rapier2d::{
-    math::{Isometry, Point},
+    math::{ Point},
     prelude::{
-        BroadPhase, CCDSolver, ColliderBuilder, ColliderHandle, ColliderSet, DefaultBroadPhase,
-        ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase,
-        PhysicsPipeline, RigidBodyBuilder, RigidBodyHandle, RigidBodySet, SharedShape,
+        BroadPhase, CCDSolver, ColliderBuilder, ColliderHandle, ColliderSet, DefaultBroadPhase, Group, ImpulseJointSet, IntegrationParameters, InteractionGroups, IslandManager, MassProperties, MultibodyJointSet, NarrowPhase, PhysicsPipeline, RigidBodyBuilder, RigidBodyHandle, RigidBodySet, SharedShape
     },
 };
 use rayon::prelude::*;
@@ -30,6 +30,9 @@ pub struct Simulation {
     hour: Option<(RigidBodyHandle, ColliderHandle)>,
     second: Option<(RigidBodyHandle, ColliderHandle)>,
     minute: Option<(RigidBodyHandle, ColliderHandle)>,
+    hour_pid: Option<Pid<f32>>,
+    second_pid: Option<Pid<f32>>,
+    minute_pid: Option<Pid<f32>>,
 
     pipeline: PhysicsPipeline,
     rigidbody_set: RigidBodySet,
@@ -44,6 +47,7 @@ pub struct Simulation {
     boundary_rigid_body: Option<RigidBodyHandle>,
     boundary_collider: Option<ColliderHandle>,
 }
+
 impl Simulation {
     pub fn new() -> Simulation {
         let mut s = Simulation {
@@ -66,6 +70,9 @@ impl Simulation {
             hour: None,
             second: None,
             minute: None,
+            hour_pid: None,
+            second_pid: None,
+            minute_pid: None,
         };
         s
     }
@@ -77,6 +84,10 @@ impl Simulation {
         let collider = ColliderBuilder::ball(ball.0)
             .restitution(BOUNCE)
             .density(1.0)
+            .collision_groups(InteractionGroups::new(
+                Group::GROUP_1,
+                Group::GROUP_1 | Group::GROUP_2,
+            ))
             .build();
         //TODO:根据大小计算密度
         self.collider_set
@@ -88,7 +99,7 @@ impl Simulation {
         let shape = SharedShape::polyline(points, None);
         let collider = ColliderBuilder::new(shape)
             .restitution(BOUNCE)
-            .density(1.0)
+            .density(1.0).collision_groups(InteractionGroups::new(Group::GROUP_1, Group::GROUP_1))
             .build();
         let rigid_body = RigidBodyBuilder::fixed()
             .translation(vector![self.size.0 as f32 / 2.0, self.size.1 as f32 / 2.0])
@@ -119,25 +130,71 @@ impl Simulation {
         self.add_boundary();
     }
     fn add_clock(&mut self) {
-        let rigid_body = RigidBodyBuilder::dynamic()
-            .translation(vector![self.size.0 as f32 / 2.0, self.size.1 as f32 / 2.0])
-            .lock_translations()
-            .build();
-        let collider_offset=Isometry::translation(0.0, 0.0);
-        const hour_length: f32 = 400.0;
-        const hour_width: f32 = 10.0;
-        let collider=ColliderBuilder::cuboid(hour_length, hour_width).density(1.0).position(collider_offset).build();
-        let rb_handle = self.rigidbody_set.insert(rigid_body);
-        let collider_handle =
-            self.collider_set
-                .insert_with_parent(collider, rb_handle, &mut self.rigidbody_set);
-        self.hour = Some((rb_handle, collider_handle));
+        self.hour_pid = Some(*Pid::new(0.0, f32::MAX).d(0.3, 10.0).p(4.0, 20.0));
+        self.second_pid = Some(*Pid::new(0.0, f32::MAX).d(0.3, 10.0).p(4.0, 20.0));
+        self.minute_pid = Some(*Pid::new(0.0, f32::MAX).d(0.3, 10.0).p(4.0, 20.0));
+        let mut build_stick = |length, width, offset: f32| {
+            let rigid_body = RigidBodyBuilder::dynamic()
+                .translation(vector![self.size.0 as f32/2.0, self.size.1 as f32/2.0])
+                
+
+                .lock_translations()
+                .build();
+
+
+            let rb_handle = self.rigidbody_set.insert(rigid_body);
+            let collider = ColliderBuilder::cuboid(length, width).density(5.0)
+                .collision_groups(InteractionGroups::new(Group::GROUP_2, Group::GROUP_1))
+                .friction(0.0).friction_combine_rule(rapier2d::prelude::CoefficientCombineRule::Min)
+                .translation(vector![offset, 0.0])
+                .build();
+            let collider_handle =
+                self.collider_set
+                    .insert_with_parent(collider, rb_handle, &mut self.rigidbody_set);
+
+
+            
+            (rb_handle, collider_handle)
+        };
+        let radius=self.size.1 as f32 / 5.0;
+        let hour_length: f32 = radius*0.618*0.618;
+        let hour_width: f32 = 8.0;
+        let hour_offset: f32 = hour_length*0.618;
+        let minute_length: f32 = radius*0.618;
+        let minute_width: f32 = 4.0;
+        let minute_offset: f32 = minute_length*0.618;
+        let second_length: f32 = radius;
+        let second_offset: f32 = second_length*0.618;
+        let second_width: f32 = 2.0;
+
+        self.hour = Some(build_stick(
+
+            hour_length,
+            hour_width,
+            hour_offset
+        ));
+        self.second = Some(build_stick(
+
+            minute_length,
+            minute_width,
+            minute_offset
+        ));
+        self.minute = Some(build_stick(
+
+            second_length,
+            second_width,
+            second_offset
+        ));
         // let collider=ColliderBuilder::cuboid(hx, hy)
     }
     fn rebuild_clock(&mut self) {
         if let Some(collider) = self.hour {
-            self.collider_set
-                .remove(collider.1, &mut self.islands, &mut self.rigidbody_set, false);
+            self.collider_set.remove(
+                collider.1,
+                &mut self.islands,
+                &mut self.rigidbody_set,
+                false,
+            );
         }
         if let Some(rb_handle) = self.hour {
             self.rigidbody_set.remove(
@@ -151,23 +208,69 @@ impl Simulation {
         }
         self.add_clock();
     }
-    pub fn set_clock_angle(&mut self,angle:(f32,f32,f32)){
+    pub fn set_clock_angle(&mut self, angle: (f32, f32, f32)) {
+        let normalize_angle = |mut a: f32| {
+            while a < -std::f32::consts::PI {
+                a += 2.0 * std::f32::consts::PI;
+            }
+            while a > std::f32::consts::PI {
+                a -= 2.0 * std::f32::consts::PI;
+            }
+            a
+        };
+        let angle = (
+            normalize_angle(angle.0),
+            normalize_angle(angle.1),
+            normalize_angle(angle.2),
+        );
+        // println!("angle: {:?}", angle);
+
         if let Some((handle, _)) = self.hour {
             let body = self.rigidbody_set.get_mut(handle).unwrap();
-            let rotation = nalgebra::UnitComplex::new(angle.0);
-            body.set_angvel(1.0, true);
-            println!("angle: {:?}", angle);
-            // body.set_translation(vector![angle.1, angle.2]);
-            
+            body.set_translation(vector![self.size.0 as f32 /2.0,self.size.1 as f32 /2.0], true);
+            let error = normalize_angle(angle.0 - body.rotation().angle());
+            let output = self
+            .hour_pid
+            .as_mut()
+            .unwrap()
+            .next_control_output(-error)
+            .output;
+            println!("hour output: {}", output);
+            body.set_angvel(output, true);
+        }
+        if let Some((handle, _)) = self.second {
+            let body = self.rigidbody_set.get_mut(handle).unwrap();
+            body.set_translation(vector![self.size.0 as f32 /2.0,self.size.1 as f32 /2.0], true);
+            let error = normalize_angle(angle.1 - body.rotation().angle());
+            let output = self
+            .second_pid
+            .as_mut()
+            .unwrap()
+            .next_control_output(-error)
+            .output;
+            println!("second output: {}", output);
+            body.set_angvel(output, true);
+        }
+        if let Some((handle, _)) = self.minute {
+            let body = self.rigidbody_set.get_mut(handle).unwrap();
+            body.set_translation(vector![self.size.0 as f32 /2.0,self.size.1 as f32 /2.0], true);
+            let error = normalize_angle(angle.2 - body.rotation().angle());
+            let output = self
+            .minute_pid
+            .as_mut()
+            .unwrap()
+            .next_control_output(-error)
+            .output;
+            println!("minute output: {}", output);
+            body.set_angvel(output, true);
         }
     }
-    
 
     pub fn on_resize(&mut self, size: (u32, u32)) {
         self.size = size;
         self.rebuild_boundary();
         self.rebuild_clock();
-        self.random_init(4000);
+        self.random_init(1000);
         self.cleanup_out_of_bounds();
     }
     fn out_ball_for_render(&self) -> Vec<(f32, f32, f32)> {
@@ -226,6 +329,10 @@ impl Simulation {
     }
 
     pub fn update(&mut self) -> Vec<(f32, f32, f32)> {
+        // let hour_body = self.hour.and_then(|(handle, _)| self.rigidbody_set.get(handle));
+        // if let Some(body) = hour_body {
+        //     println!("Hour hand position: {:?}", body.translation());
+        // }
         self.pipeline.step(
             &vector![0.0, 9.81],
             &self.integration_parameters,

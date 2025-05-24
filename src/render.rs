@@ -191,8 +191,24 @@ pub fn run(resize_callback:Box<dyn Fn((u32,u32))>,render_callback: Box<dyn Fn(&m
         .expect("Couldn't run event loop");
     Ok(())
 }
+#[cfg(target_arch = "wasm32")]
+fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
+    use wasm_bindgen::JsCast;
+    use winit::platform::web::{WindowAttributesExtWebSys, WindowExtWebSys};
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas = document
+        .get_element_by_id("winit-canvas")
+        .expect("Canvas element with id 'winit-canvas' not found")
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .expect("Element is not a canvas");
+    let attr = Window::default_attributes().with_canvas(Some(canvas));
+    // let attr=Window::default_attributes().with_canvas(canvas)
+    let window= event_loop.create_window(attr).unwrap();
+    Arc::new(window)
+}
 
 /// Helper function that creates a Winit window and returns it (wrapped in an Arc for sharing between threads)
+#[cfg(not(target_arch = "wasm32"))]
 fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
     let attr = Window::default_attributes()
         .with_inner_size(LogicalSize::new(1044, 800))
