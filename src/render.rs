@@ -132,7 +132,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                         &self.scene,
                         &surface.target_view,
                         &vello::RenderParams {
-                            base_color: palette::css::BLACK, // Background color
+                            base_color: vello::peniko::Color::from_rgb8(0x3e, 0x5a, 0x79), // Background color
                             width,
                             height,
                             antialiasing_method: AaConfig::Msaa16,

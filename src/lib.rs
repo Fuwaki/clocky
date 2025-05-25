@@ -10,9 +10,7 @@ use nalgebra::Isometry;
 use rand::rand_core::le;
 use simulation::ClockStatus;
 use vello::{
-    Scene,
-    kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke},
-    peniko::Color,
+    kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke}, peniko::Color, Scene
 };
 
 mod render;
@@ -21,6 +19,7 @@ mod simulation;
 static CONTEXT: OnceLock<Mutex<Vec<(f32, f32, f32)>>> = OnceLock::new();
 static CLOCK_STATUS : OnceLock<Mutex<ClockStatus>> = OnceLock::new();
 fn render(scene: &mut Scene) {
+
     CONTEXT
         .get_or_init(|| Mutex::new(vec![]))
         .lock()
@@ -28,7 +27,7 @@ fn render(scene: &mut Scene) {
         .iter()
         .for_each(|(x, y, z)| {
             let circle = Circle::new((*x, *y), *z as f64);
-            let circle_fill_color = Color::new([0.2121, 0.5292, 0.6949, 1.]);
+            let circle_fill_color = Color::from_rgb8(0x73, 0xb1, 0xc9);
             scene.fill(
                 vello::peniko::Fill::NonZero,
                 Affine::IDENTITY,
@@ -41,18 +40,14 @@ fn render(scene: &mut Scene) {
     // println!("clock_status: {:?}", clock_status);
     let center = nalgebra::Point2::new(clock_status.center.0, clock_status.center.1);
         let center_circle = Circle::new((center.x, center.y), 10.0);
-    scene.fill(
-        vello::peniko::Fill::NonZero,
-        Affine::IDENTITY,
-        Color::new([0.8, 0.8, 0.8, 1.0]),
-        None,
-        &center_circle,
-    );
+
     // 创建指定角度的方向向量
     let mut draw_clock=|angle:f32,length:f32,offset:f32,width,color|{
         let length=length;
         let offset=offset/length;
         let angle = angle - PI / 2.0;
+        let width= width as f32 * 2.0;
+        //让数据和rapier统一
         let line_end = center + Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
             * nalgebra::Vector2::new(0.0, length)*(1.0+offset);
         let line_start= center - Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
@@ -61,7 +56,7 @@ fn render(scene: &mut Scene) {
         scene.stroke(
             &Stroke::new(width as f64),
             Affine::IDENTITY,
-            Color::new(color),
+            color,
             None,
             &line,
         );
@@ -73,22 +68,31 @@ fn render(scene: &mut Scene) {
         clock_status.hour_length,
         clock_status.hour_offset,
         clock_status.hour_width,
-        [1.0, 0.0, 0.0, 1.],
+        Color::from_rgba8(0x1b, 0x5b, 0x7e,0xff)
     );
     draw_clock(
         clock_status.minute_angle,
         clock_status.minute_length,
         clock_status.minute_offset,
         clock_status.minute_width,
-        [0.0, 1.0, 0.0, 1.],
+        Color::from_rgba8(0x2b, 0x7e, 0x9c,114)
     );
     draw_clock(
         clock_status.second_angle,
         clock_status.second_length,
         clock_status.second_offset,
         clock_status.second_width,
-        [0.0, 0.0, 1.0, 1.],
+        Color::from_rgba8(0x4a, 0x9a, 0xb0,248),
     );
+    drop(draw_clock);
+        scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        Color::new([0.7, 0.7, 0.7, 0.6]),
+        None,
+        &center_circle,
+    );
+
 
 }
 fn get_time() -> (u32, u32, u32, u32) {
@@ -120,7 +124,7 @@ fn simu_thread(simu: Arc<Mutex<simulation::Simulation>>) {
     loop {
         let mut simu = simu.lock().unwrap();
         if !inited {
-            simu.random_init(4000);
+            simu.random_init(2000);
             inited = true;
         }
         let (hour, minute, second, millisecond) = get_time();

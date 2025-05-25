@@ -1,6 +1,7 @@
 use chrono::offset;
 use nalgebra::{Isometry, Rotation, Vector2, point, vector};
 use pid::Pid;
+use rand::rand_core::le;
 use rapier2d::{
     math::Point,
     prelude::{
@@ -119,7 +120,7 @@ impl Simulation {
         let handle = self.rigidbody_set.insert(rigid_body);
         let collider = ColliderBuilder::ball(ball.0)
             .restitution(BOUNCE)
-            .density(10.0)
+            .density(5.0)
             .friction(0.1)
             .collision_groups(InteractionGroups::new(
                 Group::GROUP_1,
@@ -178,7 +179,8 @@ impl Simulation {
                 .build();
 
             let rb_handle = self.rigidbody_set.insert(rigid_body);
-            let collider = ColliderBuilder::cuboid(length, width)
+            // let collider = ColliderBuilder::cuboid(length, width)
+            let collider=ColliderBuilder::capsule_x(length, width)
                 .density(3.0)
                 .collision_groups(InteractionGroups::new(Group::GROUP_2, Group::GROUP_1))
                 .friction(0.0)
@@ -193,14 +195,14 @@ impl Simulation {
         };
         let radius = self.size.1 as f32 / 5.0;
         self.clock_status.hour_length = radius * 0.618 * 0.618;
-        self.clock_status.hour_width = 8.0;
+        self.clock_status.hour_width = 18.0;
         self.clock_status.hour_offset = self.clock_status.hour_length * 0.618;
         self.clock_status.minute_length = radius * 0.618;
-        self.clock_status.minute_width = 4.0;
+        self.clock_status.minute_width = 18.0;
         self.clock_status.minute_offset = self.clock_status.minute_length * 0.618;
         self.clock_status.second_length = radius;
         self.clock_status.second_offset = self.clock_status.second_length * 0.618;
-        self.clock_status.second_width = 2.0;
+        self.clock_status.second_width = 5.0;
 
         self.clock_status.center = (
             self.size.0 as f32 / 2.0,
@@ -350,7 +352,7 @@ impl Simulation {
         for _ in 0..ball_num {
             let x = rng.random_range(0.0..self.size.0 as f32);
             let y = rng.random_range(0.0..self.size.1 as f32);
-            let radius = rng.random_range(1.0..10.0);
+            let radius = rng.random_range(3.0..14.0);
             self.add_ball((radius, Vector2::new(x, y)));
         }
         self.cleanup_out_of_bounds();
