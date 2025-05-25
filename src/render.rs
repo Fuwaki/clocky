@@ -212,7 +212,7 @@ fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
 fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
     let attr = Window::default_attributes()
         .with_inner_size(LogicalSize::new(1044, 800))
-        .with_resizable(true)
+        .with_resizable(false)
         .with_title("Qwq");
     Arc::new(event_loop.create_window(attr).unwrap())
 }

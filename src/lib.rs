@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 pub(crate) use std::{
     iter::once_with,
     sync::{Arc, Mutex, OnceLock},
@@ -5,6 +6,9 @@ pub(crate) use std::{
 };
 // use wasm_thread as thread;
 use chrono::{Local, Timelike};
+use nalgebra::Isometry;
+use rand::rand_core::le;
+use simulation::ClockStatus;
 use vello::{
     Scene,
     kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke},
@@ -15,6 +19,7 @@ mod render;
 mod simulation;
 
 static CONTEXT: OnceLock<Mutex<Vec<(f32, f32, f32)>>> = OnceLock::new();
+static CLOCK_STATUS : OnceLock<Mutex<ClockStatus>> = OnceLock::new();
 fn render(scene: &mut Scene) {
     CONTEXT
         .get_or_init(|| Mutex::new(vec![]))
@@ -23,7 +28,7 @@ fn render(scene: &mut Scene) {
         .iter()
         .for_each(|(x, y, z)| {
             let circle = Circle::new((*x, *y), *z as f64);
-            let circle_fill_color = Color::new([0.2121, 0.5292, 0.6749, 1.]);
+            let circle_fill_color = Color::new([0.2121, 0.5292, 0.6949, 1.]);
             scene.fill(
                 vello::peniko::Fill::NonZero,
                 Affine::IDENTITY,
@@ -32,6 +37,59 @@ fn render(scene: &mut Scene) {
                 &circle,
             );
         });
+    let clock_status = CLOCK_STATUS.get_or_init(|| Mutex::new(ClockStatus::default())).lock().unwrap();
+    // println!("clock_status: {:?}", clock_status);
+    let center = nalgebra::Point2::new(clock_status.center.0, clock_status.center.1);
+        let center_circle = Circle::new((center.x, center.y), 10.0);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        Color::new([0.8, 0.8, 0.8, 1.0]),
+        None,
+        &center_circle,
+    );
+    // 创建指定角度的方向向量
+    let mut draw_clock=|angle:f32,length:f32,offset:f32,width,color|{
+        let length=length;
+        let offset=offset/length;
+        let angle = angle - PI / 2.0;
+        let line_end = center + Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
+            * nalgebra::Vector2::new(0.0, length)*(1.0+offset);
+        let line_start= center - Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
+            * nalgebra::Vector2::new(0.0, length)*(1.0-offset);
+        let line = Line::new((line_start.x,line_start.y), (line_end.x, line_end.y));
+        scene.stroke(
+            &Stroke::new(width as f64),
+            Affine::IDENTITY,
+            Color::new(color),
+            None,
+            &line,
+        );
+
+    };
+
+    draw_clock(
+        clock_status.hour_angle,
+        clock_status.hour_length,
+        clock_status.hour_offset,
+        clock_status.hour_width,
+        [1.0, 0.0, 0.0, 1.],
+    );
+    draw_clock(
+        clock_status.minute_angle,
+        clock_status.minute_length,
+        clock_status.minute_offset,
+        clock_status.minute_width,
+        [0.0, 1.0, 0.0, 1.],
+    );
+    draw_clock(
+        clock_status.second_angle,
+        clock_status.second_length,
+        clock_status.second_offset,
+        clock_status.second_width,
+        [0.0, 0.0, 1.0, 1.],
+    );
+
 }
 fn get_time() -> (u32, u32, u32, u32) {
     let now = Local::now();
@@ -43,14 +101,18 @@ fn get_time() -> (u32, u32, u32, u32) {
 }
 fn time_to_clock_angle(hour: u32, minute: u32, second: u32, millisecond: u32) -> (f32, f32, f32) {
     // println!("hour: {}, minute: {}, second: {}, millisecond: {}", hour, minute, second, millisecond);
-    let mut hour_angle = (hour as f32 % 12.0 + minute as f32 / 60.0 + second as f32 / 3600.0) * 30.0;
+    let mut hour_angle =
+        (hour as f32 % 12.0 + minute as f32 / 60.0 + second as f32 / 3600.0) * 30.0;
     let mut minute_angle = (minute as f32 + second as f32 / 60.0) * 6.0;
-    let mut second_angle = (second as f32 ) * 6.0;
-    hour_angle-=90.0;
-    minute_angle-=90.0;
-    second_angle-=90.0;
-
-    (hour_angle.to_radians(), minute_angle.to_radians(), second_angle.to_radians())
+    let mut second_angle = (second as f32) * 6.0;
+    hour_angle -= 90.0;
+    minute_angle -= 90.0;
+    second_angle -= 90.0;
+    (
+        hour_angle.to_radians(),
+        minute_angle.to_radians(),
+        second_angle.to_radians(),
+    )
 }
 
 fn simu_thread(simu: Arc<Mutex<simulation::Simulation>>) {
@@ -58,7 +120,7 @@ fn simu_thread(simu: Arc<Mutex<simulation::Simulation>>) {
     loop {
         let mut simu = simu.lock().unwrap();
         if !inited {
-            simu.random_init(6000);
+            simu.random_init(4000);
             inited = true;
         }
         let (hour, minute, second, millisecond) = get_time();
@@ -69,7 +131,9 @@ fn simu_thread(simu: Arc<Mutex<simulation::Simulation>>) {
         let res = simu.update();
         // println!("{:?}",res);
         let mut guard = CONTEXT.get_or_init(|| Mutex::new(vec![])).lock().unwrap();
-        *guard = res;
+        *guard = res.0;
+        let mut clock_status = CLOCK_STATUS.get_or_init(|| Mutex::new(ClockStatus::default())).lock().unwrap();
+        *clock_status = res.1;
         drop(simu);
         thread::sleep(std::time::Duration::from_millis(1));
     }
