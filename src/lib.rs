@@ -6,20 +6,22 @@ pub(crate) use std::{
 };
 // use wasm_thread as thread;
 use chrono::{Local, Timelike};
+use log::info;
 use nalgebra::Isometry;
 use rand::rand_core::le;
 use simulation::ClockStatus;
 use vello::{
-    kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke}, peniko::Color, Scene
+    Scene,
+    kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke},
+    peniko::Color,
 };
 
 mod render;
 mod simulation;
 
 static CONTEXT: OnceLock<Mutex<Vec<(f32, f32, f32)>>> = OnceLock::new();
-static CLOCK_STATUS : OnceLock<Mutex<ClockStatus>> = OnceLock::new();
+static CLOCK_STATUS: OnceLock<Mutex<ClockStatus>> = OnceLock::new();
 fn render(scene: &mut Scene) {
-
     CONTEXT
         .get_or_init(|| Mutex::new(vec![]))
         .lock()
@@ -36,23 +38,30 @@ fn render(scene: &mut Scene) {
                 &circle,
             );
         });
-    let clock_status = CLOCK_STATUS.get_or_init(|| Mutex::new(ClockStatus::default())).lock().unwrap();
+    let clock_status = CLOCK_STATUS
+        .get_or_init(|| Mutex::new(ClockStatus::default()))
+        .lock()
+        .unwrap();
     // println!("clock_status: {:?}", clock_status);
     let center = nalgebra::Point2::new(clock_status.center.0, clock_status.center.1);
-        let center_circle = Circle::new((center.x, center.y), 10.0);
+    let center_circle = Circle::new((center.x, center.y), 10.0);
 
     // 创建指定角度的方向向量
-    let mut draw_clock=|angle:f32,length:f32,offset:f32,width,color|{
-        let length=length;
-        let offset=offset/length;
+    let mut draw_clock = |angle: f32, length: f32, offset: f32, width, color| {
+        let length = length;
+        let offset = offset / length;
         let angle = angle - PI / 2.0;
-        let width= width as f32 * 2.0;
+        let width = width as f32 * 2.0;
         //让数据和rapier统一
-        let line_end = center + Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
-            * nalgebra::Vector2::new(0.0, length)*(1.0+offset);
-        let line_start= center - Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
-            * nalgebra::Vector2::new(0.0, length)*(1.0-offset);
-        let line = Line::new((line_start.x,line_start.y), (line_end.x, line_end.y));
+        let line_end = center
+            + Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
+                * nalgebra::Vector2::new(0.0, length)
+                * (1.0 + offset);
+        let line_start = center
+            - Isometry::<f32, nalgebra::Rotation2<f32>, 2>::rotation(angle)
+                * nalgebra::Vector2::new(0.0, length)
+                * (1.0 - offset);
+        let line = Line::new((line_start.x, line_start.y), (line_end.x, line_end.y));
         scene.stroke(
             &Stroke::new(width as f64),
             Affine::IDENTITY,
@@ -60,7 +69,6 @@ fn render(scene: &mut Scene) {
             None,
             &line,
         );
-
     };
 
     draw_clock(
@@ -68,32 +76,41 @@ fn render(scene: &mut Scene) {
         clock_status.hour_length,
         clock_status.hour_offset,
         clock_status.hour_width,
-        Color::from_rgba8(0x1b, 0x5b, 0x7e,0xff)
+        Color::from_rgba8(0x1b, 0x5b, 0x7e, 0xff),
     );
     draw_clock(
         clock_status.minute_angle,
         clock_status.minute_length,
         clock_status.minute_offset,
         clock_status.minute_width,
-        Color::from_rgba8(0x2b, 0x7e, 0x9c,114)
+        Color::from_rgba8(0x2b, 0x7e, 0x9c, 114),
     );
     draw_clock(
         clock_status.second_angle,
         clock_status.second_length,
         clock_status.second_offset,
         clock_status.second_width,
-        Color::from_rgba8(0x4a, 0x9a, 0xb0,248),
+        Color::from_rgba8(0x4a, 0x9a, 0xb0, 248),
     );
     drop(draw_clock);
-        scene.fill(
+    scene.fill(
         vello::peniko::Fill::NonZero,
         Affine::IDENTITY,
         Color::new([0.7, 0.7, 0.7, 0.6]),
         None,
         &center_circle,
     );
-
-
+}
+fn render_simple(scene: &mut Scene) {
+    let circle = Circle::new((200.0, 200.0), 100.0);
+    let color = Color::from_rgb8(0x73, 0xb1, 0xc9);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        color,
+        None,
+        &circle,
+    );
 }
 fn get_time() -> (u32, u32, u32, u32) {
     let now = Local::now();
@@ -124,7 +141,7 @@ fn simu_thread(simu: Arc<Mutex<simulation::Simulation>>) {
     loop {
         let mut simu = simu.lock().unwrap();
         if !inited {
-            simu.random_init(2000);
+            simu.random_init_with_percentage(0.5);
             inited = true;
         }
         let (hour, minute, second, millisecond) = get_time();
@@ -133,23 +150,27 @@ fn simu_thread(simu: Arc<Mutex<simulation::Simulation>>) {
         simu.set_clock_angle(angles);
 
         let res = simu.update();
-        // println!("{:?}",res);
+        // info!("{:?}",res);
         let mut guard = CONTEXT.get_or_init(|| Mutex::new(vec![])).lock().unwrap();
         *guard = res.0;
-        let mut clock_status = CLOCK_STATUS.get_or_init(|| Mutex::new(ClockStatus::default())).lock().unwrap();
+        let mut clock_status = CLOCK_STATUS
+            .get_or_init(|| Mutex::new(ClockStatus::default()))
+            .lock()
+            .unwrap();
         *clock_status = res.1;
         drop(simu);
         thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 
-pub fn run_app() -> anyhow::Result<()> {
+pub fn run_app(event_loop: EventLoop<()>) -> anyhow::Result<()> {
     let simu = simulation::Simulation::new();
     let simu_for_thread = Arc::new(Mutex::new(simu));
     let simu = Arc::clone(&simu_for_thread);
 
     thread::spawn(move || {
         simu_thread(simu_for_thread);
+
     });
 
     render::run(
@@ -158,6 +179,7 @@ pub fn run_app() -> anyhow::Result<()> {
             simu.lock().unwrap().on_resize(size);
         }),
         Box::new(render),
+        event_loop,
     )?;
     Ok(())
 }
@@ -172,7 +194,27 @@ pub fn run_app() -> anyhow::Result<()> {
 // }
 // use console_error_panic_hook;
 
+use winit::event_loop::EventLoop;
 // #[wasm_bindgen]
 // pub fn init() {
 //     console_error_panic_hook::set_once(); // 捕获 panic 并输出到控制台
 // }
+#[cfg(target_os = "android")]
+pub use winit::platform::android::activity::AndroidApp;
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+fn android_main(app: AndroidApp) {
+    use log::info;
+    use winit::platform::android::EventLoopBuilderExtAndroid;
+
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
+    info!("开始");
+    let event_loop = EventLoop::with_user_event()
+        .with_android_app(app)
+        .build()
+        .expect("Failed to create event loop");
+    run_app(event_loop).expect("Failed to run app");
+}

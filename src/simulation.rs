@@ -27,7 +27,7 @@ fn generate_circle_points(radius: f32, segments: usize) -> Vec<Point<f32>> {
 
     points
 }
-#[derive(Default, Clone, Copy,Debug)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct ClockStatus {
     pub hour_angle: f32,
     pub minute_angle: f32,
@@ -55,6 +55,7 @@ pub struct Simulation {
     minute_pid: Option<Pid<f32>>,
 
     clock_status: ClockStatus,
+    boundary_radius: f32,
 
     pipeline: PhysicsPipeline,
     rigidbody_set: RigidBodySet,
@@ -95,6 +96,7 @@ impl Simulation {
             hour_pid: None,
             second_pid: None,
             minute_pid: None,
+            boundary_radius: 0.0,
             clock_status: ClockStatus {
                 hour_angle: 0.0,
                 minute_angle: 0.0,
@@ -120,7 +122,7 @@ impl Simulation {
         let handle = self.rigidbody_set.insert(rigid_body);
         let collider = ColliderBuilder::ball(ball.0)
             .restitution(BOUNCE)
-            .density(5.0)
+            .density(3.0)
             .friction(0.1)
             .collision_groups(InteractionGroups::new(
                 Group::GROUP_1,
@@ -132,8 +134,22 @@ impl Simulation {
             .insert_with_parent(collider, handle, &mut self.rigidbody_set);
         self.ballset.push((handle, ball.0));
     }
+    pub fn clear_all_balls(&mut self) {
+        for (handle, _) in self.ballset.drain(..) {
+            self.rigidbody_set.remove(
+                handle,
+                &mut self.islands,
+                &mut self.collider_set,
+                &mut self.impulse_joints,
+                &mut self.multibody_joints,
+                true,
+            );
+        }
+        println!("All balls cleared.");
+    }
     fn add_boundary(&mut self) {
-        let points = generate_circle_points(self.size.1 as f32 / 2.5, 64);
+        self.boundary_radius = self.size.0.min(self.size.1) as f32 / 2.5;
+        let points = generate_circle_points(self.boundary_radius, 114);
         let shape = SharedShape::polyline(points, None);
         let collider = ColliderBuilder::new(shape)
             .restitution(BOUNCE)
@@ -180,7 +196,7 @@ impl Simulation {
 
             let rb_handle = self.rigidbody_set.insert(rigid_body);
             // let collider = ColliderBuilder::cuboid(length, width)
-            let collider=ColliderBuilder::capsule_x(length, width)
+            let collider = ColliderBuilder::capsule_x(length, width)
                 .density(3.0)
                 .collision_groups(InteractionGroups::new(Group::GROUP_2, Group::GROUP_1))
                 .friction(0.0)
@@ -193,21 +209,18 @@ impl Simulation {
 
             (rb_handle, collider_handle)
         };
-        let radius = self.size.1 as f32 / 5.0;
+        let radius = self.boundary_radius*0.5;
         self.clock_status.hour_length = radius * 0.618 * 0.618;
-        self.clock_status.hour_width = 18.0;
+        self.clock_status.hour_width = radius*0.08;
         self.clock_status.hour_offset = self.clock_status.hour_length * 0.618;
         self.clock_status.minute_length = radius * 0.618;
-        self.clock_status.minute_width = 18.0;
+        self.clock_status.minute_width = radius * 0.05;
         self.clock_status.minute_offset = self.clock_status.minute_length * 0.618;
         self.clock_status.second_length = radius;
         self.clock_status.second_offset = self.clock_status.second_length * 0.618;
-        self.clock_status.second_width = 5.0;
+        self.clock_status.second_width = radius * 0.02;
 
-        self.clock_status.center = (
-            self.size.0 as f32 / 2.0,
-            self.size.1 as f32 / 2.0,
-        );
+        self.clock_status.center = (self.size.0 as f32 / 2.0, self.size.1 as f32 / 2.0);
 
         self.hour = Some(build_stick(
             self.clock_status.hour_length,
@@ -217,7 +230,8 @@ impl Simulation {
         self.second = Some(build_stick(
             self.clock_status.second_length,
             self.clock_status.second_width,
-            self.clock_status.second_offset,));
+            self.clock_status.second_offset,
+        ));
         self.minute = Some(build_stick(
             self.clock_status.minute_length,
             self.clock_status.minute_width,
@@ -227,17 +241,11 @@ impl Simulation {
         // let collider=ColliderBuilder::cuboid(hx, hy)
     }
     fn rebuild_clock(&mut self) {
-        if let Some(collider) = self.hour {
-            self.collider_set.remove(
-                collider.1,
-                &mut self.islands,
-                &mut self.rigidbody_set,
-                false,
-            );
-        }
-        if let Some(rb_handle) = self.hour {
+        if let Some((rb_handle, collider)) = self.hour {
+            self.collider_set
+                .remove(collider, &mut self.islands, &mut self.rigidbody_set, false);
             self.rigidbody_set.remove(
-                rb_handle.0,
+                rb_handle,
                 &mut self.islands,
                 &mut self.collider_set,
                 &mut self.impulse_joints,
@@ -245,6 +253,31 @@ impl Simulation {
                 true,
             );
         }
+        if let Some((rb_handle, collider)) = self.second {
+            self.collider_set
+                .remove(collider, &mut self.islands, &mut self.rigidbody_set, false);
+            self.rigidbody_set.remove(
+                rb_handle,
+                &mut self.islands,
+                &mut self.collider_set,
+                &mut self.impulse_joints,
+                &mut self.multibody_joints,
+                true,
+            );
+        }
+        if let Some((rb_handle, collider)) = self.minute {
+            self.collider_set
+                .remove(collider, &mut self.islands, &mut self.rigidbody_set, false);
+            self.rigidbody_set.remove(
+                rb_handle,
+                &mut self.islands,
+                &mut self.collider_set,
+                &mut self.impulse_joints,
+                &mut self.multibody_joints,
+                true,
+            );
+        }
+
         self.add_clock();
     }
     pub fn set_clock_angle(&mut self, angle: (f32, f32, f32)) {
@@ -316,9 +349,13 @@ impl Simulation {
 
     pub fn on_resize(&mut self, size: (u32, u32)) {
         self.size = size;
+        //注意顺序 因为有些尺寸是在某些函数中计算的
+        //写屎了
+        //kueen
+        self.clear_all_balls();
         self.rebuild_boundary();
         self.rebuild_clock();
-        self.random_init(1000);
+        self.random_init_with_percentage(0.8);
         self.cleanup_out_of_bounds();
     }
     fn out_ball_for_render(&self) -> Vec<(f32, f32, f32)> {
@@ -352,10 +389,20 @@ impl Simulation {
         for _ in 0..ball_num {
             let x = rng.random_range(0.0..self.size.0 as f32);
             let y = rng.random_range(0.0..self.size.1 as f32);
-            let radius = rng.random_range(3.0..14.0);
+            let radius = rng.random_range(self.boundary_radius*0.008..self.boundary_radius*0.03);
             self.add_ball((radius, Vector2::new(x, y)));
         }
         self.cleanup_out_of_bounds();
+    }
+    pub fn random_init_with_percentage(&mut self, percentage: f32) {
+        assert!(
+            (0.0..=1.0).contains(&percentage),
+            "percentage must be between 0.0 and 1.0"
+        );
+        const K: f32 = 0.02; //k的取值和random_init的球的大小的期望值有关
+        let ball_num = self.boundary_radius.powi(2) * percentage * K;
+        println!("ball_num: {}", ball_num);
+        self.random_init(ball_num as u32);
     }
     fn cleanup_out_of_bounds(&mut self) {
         use rayon::prelude::*;
@@ -369,7 +416,7 @@ impl Simulation {
                 let pos = body.translation();
                 if (pos.x - self.size.0 as f32 / 2.0).powi(2)
                     + (pos.y - self.size.1 as f32 / 2.0).powi(2)
-                    > (self.size.1 as f32 / 2.5).powi(2)
+                    > (self.boundary_radius).powi(2)
                 {
                     Some(i)
                 } else {
@@ -391,7 +438,7 @@ impl Simulation {
         }
     }
 
-    pub fn update(&mut self) ->(Vec<(f32, f32, f32)>,ClockStatus) {
+    pub fn update(&mut self) -> (Vec<(f32, f32, f32)>, ClockStatus) {
         // let hour_body = self.hour.and_then(|(handle, _)| self.rigidbody_set.get(handle));
         // if let Some(body) = hour_body {
         //     println!("Hour hand position: {:?}", body.translation());
@@ -412,6 +459,6 @@ impl Simulation {
             &(),
         );
 
-        return( self.out_ball_for_render(), self.out_clock_for_render());
+        return (self.out_ball_for_render(), self.out_clock_for_render());
     }
 }

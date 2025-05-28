@@ -5,9 +5,10 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::Window;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Fullscreen, Window};
 
 use vello::wgpu;
 
@@ -40,6 +41,8 @@ struct SimpleVelloApp<'s> {
     scene: Scene,
     render_callback: Box<dyn Fn(&mut Scene)>,
     resize_callback: Box<dyn Fn((u32, u32))>,
+
+    is_fullscreen: bool, // 新增字段，记录全屏状态
 }
 
 impl ApplicationHandler for SimpleVelloApp<'_> {
@@ -89,8 +92,10 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
         event: WindowEvent,
     ) {
         // Only process events for our window, and only when we have a surface.
-        let (surface,window) = match &mut self.state {
-            RenderState::Active { surface, window } if window.id() == window_id => (surface,window),
+        let (surface, window) = match &mut self.state {
+            RenderState::Active { surface, window } if window.id() == window_id => {
+                (surface, window)
+            }
             _ => return,
         };
 
@@ -135,7 +140,10 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                             base_color: vello::peniko::Color::from_rgb8(0x3e, 0x5a, 0x79), // Background color
                             width,
                             height,
-                            antialiasing_method: AaConfig::Msaa16,
+                            #[cfg(target_os = "android")]
+                            antialiasing_method: AaConfig::Area,
+                            #[cfg(not(target_os = "android"))]
+                            antialiasing_method: AaConfig::Msaa16
                         },
                     )
                     .expect("failed to render to surface");
@@ -168,12 +176,35 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                 device_handle.device.poll(wgpu::Maintain::Poll);
                 window.request_redraw();
             }
+
+            WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        physical_key: PhysicalKey::Code(winit::keyboard::KeyCode::F11),
+                        state: ElementState::Pressed,
+                        repeat: false,
+                        ..
+                    },
+                ..
+            } => {
+                // 切换全屏状态
+                self.is_fullscreen = !self.is_fullscreen;
+                if self.is_fullscreen {
+                    window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                } else {
+                    window.set_fullscreen(None);
+                }
+            }
             _ => {}
         }
     }
 }
 
-pub fn run(resize_callback:Box<dyn Fn((u32,u32))>,render_callback: Box<dyn Fn(&mut Scene)>) -> Result<()> {
+pub fn run(
+    resize_callback: Box<dyn Fn((u32, u32))>,
+    render_callback: Box<dyn Fn(&mut Scene)>,
+    event_loop: EventLoop<()>,
+) -> Result<()> {
     // Setup a bunch of state:
     let mut app = SimpleVelloApp {
         context: RenderContext::new(),
@@ -182,10 +213,10 @@ pub fn run(resize_callback:Box<dyn Fn((u32,u32))>,render_callback: Box<dyn Fn(&m
         scene: Scene::new(),
         render_callback,
         resize_callback,
+        is_fullscreen: false, // 初始化为非全屏
     };
 
     // Create and run a winit event loop
-    let event_loop = EventLoop::new()?;
     event_loop
         .run_app(&mut app)
         .expect("Couldn't run event loop");
@@ -203,20 +234,27 @@ fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
         .expect("Element is not a canvas");
     let attr = Window::default_attributes().with_canvas(Some(canvas));
     // let attr=Window::default_attributes().with_canvas(canvas)
-    let window= event_loop.create_window(attr).unwrap();
+    let window = event_loop.create_window(attr).unwrap();
     Arc::new(window)
 }
 
 /// Helper function that creates a Winit window and returns it (wrapped in an Arc for sharing between threads)
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
     let attr = Window::default_attributes()
         .with_inner_size(LogicalSize::new(1044, 800))
-        .with_resizable(false)
+        .with_resizable(true)
         .with_title("Qwq");
     Arc::new(event_loop.create_window(attr).unwrap())
 }
-
+#[cfg(target_os = "android")]
+fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
+    Arc::new(
+        event_loop
+            .create_window(Window::default_attributes().with_resizable(true))
+            .unwrap(),
+    )
+}
 /// Helper function that creates a vello `Renderer` for a given `RenderContext` and `RenderSurface`
 fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>) -> Renderer {
     Renderer::new(
