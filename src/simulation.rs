@@ -210,15 +210,15 @@ impl Simulation {
             (rb_handle, collider_handle)
         };
         let radius = self.boundary_radius*0.5;
-        self.clock_status.hour_length = radius * 0.618 * 0.618;
-        self.clock_status.hour_width = radius*0.08;
+        self.clock_status.hour_length = radius * 0.618 * 0.8;
+        self.clock_status.hour_width = radius*0.1;
         self.clock_status.hour_offset = self.clock_status.hour_length * 0.618;
         self.clock_status.minute_length = radius * 0.618;
-        self.clock_status.minute_width = radius * 0.05;
+        self.clock_status.minute_width = radius * 0.09;
         self.clock_status.minute_offset = self.clock_status.minute_length * 0.618;
         self.clock_status.second_length = radius;
         self.clock_status.second_offset = self.clock_status.second_length * 0.618;
-        self.clock_status.second_width = radius * 0.02;
+        self.clock_status.second_width = radius * 0.03;
 
         self.clock_status.center = (self.size.0 as f32 / 2.0, self.size.1 as f32 / 2.0);
 
@@ -399,9 +399,9 @@ impl Simulation {
             (0.0..=1.0).contains(&percentage),
             "percentage must be between 0.0 and 1.0"
         );
-        const K: f32 = 0.02; //k的取值和random_init的球的大小的期望值有关
+        const K: f32 = 0.03; //k的取值和random_init的球的大小的期望值有关
         let ball_num = self.boundary_radius.powi(2) * percentage * K;
-        println!("ball_num: {}", ball_num);
+        log::info!("ball_num: {}", ball_num);
         self.random_init(ball_num as u32);
     }
     fn cleanup_out_of_bounds(&mut self) {
